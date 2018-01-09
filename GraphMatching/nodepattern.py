@@ -4,6 +4,8 @@ import typing
 import itertools
 import networkx as nx
 
+from networkx.algorithms import isomorphism
+
 # A Graph Pattern is a graph in which some nodes are parametric (i.e. can be replaced).
 #
 # In such a graph pattern, where there are n holes (i.e. parameters) we can denote the graph as G[p1, p2, ... pn].
@@ -14,55 +16,55 @@ import networkx as nx
 # edge output mapping {nodeid: {edgename: new edge name}}
 # name
 
-PatternData = collections.namedtuple("PatternData", ["graph", "in_edge_mapping", "out_edge_mapping"])
-
-# Replacement structure:
-# nodes are nodes that will be subsumed in the pattern
-
-Replacement = collections.namedtuple("Replacement", ["result_node", "nodes", "edges"])
+PatternData = typing.NamedTuple("PatternData",
+                                [("graph", nx.MultiDiGraph),
+                                 ("in_edge_mapping", typing.Mapping), ("out_edge_mapping", typing.Mapping)])
 
 # Edge structure:
 # out: output name of source node
 # in: input name of destination node
 
 
+class PatternType(type):
+    global_patterns = {}
 
-class Pattern:
-    def __init__(self, pattern: PatternData, validator: typing.Callable[[nx.MultiDiGraph], bool]):
-        self.pattern = pattern
+    def __init__(cls, name, bases, dct):
+        super().__init__(name, bases, dct)
+        cls.patterns = set()
 
-        # node_id marks the location within the graph to be replaced.
-        self.sub_patterns = {node_id: node_data for node_id, node_data in pattern.graph.nodes(True) if
-                             'pattern' in node_data}
-        self.validator = validator
-
-    def is_terminal(self):
-        return not self.sub_patterns
-
-    def instantiate(self):
-        pass
+    def __call__(cls, pattern: PatternData):
+        if pattern in cls.global_patterns:
+            raise ValueError(f"Pattern {pattern} is already in {self.global_patterns[pattern]}.")
+        cls.patterns.add(pattern)
+        PatternType.global_patterns[pattern] = cls
 
 
-    def match(self, graph: nx.MultiDiGraph) -> typing.List[Replacement]:
-        """
-        :param graph: Graph to identify isomorphisms
-        :return: list of node isomorphisms after recognizing and replacing patterns.
-        """
-        matches = {}
-        for pattern_id, pattern_data in self.sub_patterns.items():
-            pattern_data = pattern_data['pattern']
-            matches[pattern_id] = pattern_data.graph.match(graph)
+NodeData = typing.NamedTuple("NodeData", [("type", PatternType), ("parameters", typing.List)])
 
-        # verify that there are no pattern overlapping
-        # todo: replace with independent set
-        for (id1, matches1), (id2, matches2) in itertools.combinations_with_replacement(matches.items(), 2):
-            for m1, m2 in itertools.product(matches1, matches2):
-                if not m1.isdisjoint(m2):
-                    raise Exception(f"Patterns not disjoint: {id1} {id2} overlap with isomorphisms {m1}, {m2}")
 
-        # perform replacement
-        for pattern_id in matches:
-            isomorphisms = matches[pattern_id]
+def _node_match(g1_node, g2_node):
+    g1_data = g1_node["data"]
+    g2_data = g2_node["data"]
+    return issubclass(g1_data.type, g2_data.type)
+
+
+def _edge_match(g1_edge, g2_edge):
+    print(g1_edge, g2_edge)
+    return any(
+        edgedata1["out"] == edgedata2["out"] and edgedata1["in"] == edgedata2["in"]
+        for edgedata1, edgedata2 in itertools.product(g1_edge.values(), g2_edge.values()))
+
+
+def match(pattern: PatternData, graph: nx.MultiDiGraph) -> typing.Iterable[typing.Mapping]:
+    """
+    :param graph: Graph to identify and replace isomorphisms (in place)
+    :return bool indicating whether or not match was successful
+    """
+
+    mapping = isomorphism.MultiDiGraphMatcher(graph, pattern.graph,
+                                              node_match=_node_match,
+                                              edge_match=_edge_match)
+    return mapping.subgraph_isomorphisms_iter()
 
 
 def replace(node_id, graph: nx.MultiDiGraph, isomorphism: typing.Mapping, pattern_data: PatternData, data):
