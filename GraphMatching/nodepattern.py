@@ -1,4 +1,3 @@
-import collections
 import typing
 
 import itertools
@@ -6,40 +5,11 @@ import networkx as nx
 
 from networkx.algorithms import isomorphism
 
+from . import type_base
+
 # A Graph Pattern is a graph in which some nodes are parametric (i.e. can be replaced).
 #
 # In such a graph pattern, where there are n holes (i.e. parameters) we can denote the graph as G[p1, p2, ... pn].
-#
-# Pattern metadata:
-# Subgraph
-# edge input mapping {nodeid: {edgename: new edge name}}
-# edge output mapping {nodeid: {edgename: new edge name}}
-# name
-
-PatternData = typing.NamedTuple("PatternData",
-                                [("graph", nx.MultiDiGraph),
-                                 ("in_edge_mapping", typing.Mapping), ("out_edge_mapping", typing.Mapping)])
-
-# Edge structure:
-# out: output name of source node
-# in: input name of destination node
-
-
-class PatternType(type):
-    global_patterns = {}
-
-    def __init__(cls, name, bases, dct):
-        super().__init__(name, bases, dct)
-        cls.patterns = set()
-
-    def __call__(cls, pattern: PatternData):
-        if pattern in cls.global_patterns:
-            raise ValueError(f"Pattern {pattern} is already in {self.global_patterns[pattern]}.")
-        cls.patterns.add(pattern)
-        PatternType.global_patterns[pattern] = cls
-
-
-NodeData = typing.NamedTuple("NodeData", [("type", PatternType), ("parameters", typing.List)])
 
 
 def _node_match(g1_node, g2_node):
@@ -55,7 +25,7 @@ def _edge_match(g1_edge, g2_edge):
         for edgedata1, edgedata2 in itertools.product(g1_edge.values(), g2_edge.values()))
 
 
-def match(pattern: PatternData, graph: nx.MultiDiGraph) -> typing.Iterable[typing.Mapping]:
+def match(pattern: type_base.SubgraphData, graph: nx.MultiDiGraph) -> typing.Iterable[typing.Mapping]:
     """
     :param graph: Graph to identify and replace isomorphisms (in place)
     :return bool indicating whether or not match was successful
@@ -67,8 +37,9 @@ def match(pattern: PatternData, graph: nx.MultiDiGraph) -> typing.Iterable[typin
     return mapping.subgraph_isomorphisms_iter()
 
 
-def replace(node_id, graph: nx.MultiDiGraph, isomorphism: typing.Mapping, pattern_data: PatternData, data):
-    graph.add_node(node_id, **data)
+def replace(node_id, graph: nx.MultiDiGraph, isomorphism: typing.Mapping,
+            pattern_data: type_base.SubgraphData, data: type_base.NodeData):
+    graph.add_node(node_id, data=data)
 
     # for each in-edge to the set of nodes, find the replacement and create a new edge
     # given a targeted node and a key, find the source node. Then wire the source node to the replacement node
